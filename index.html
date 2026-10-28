@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PHILO STUDIO — Local Photo Selection</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            warmWhite: '#FAF8F5',
+            softCream: '#F3EEEA',
+            blushPink: '#E8C5C8',
+            blushHover: '#DFB2B6',
+            mutedBrown: '#5A4A42',
+            darkBrown: '#362C27'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-warmWhite text-darkBrown antialiased">
+  <div id="app" class="h-full w-full flex flex-col">
+    
+    <!-- Top Header -->
+    <header class="h-16 px-6 bg-softCream border-b border-stone-200/80 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-4">
+        <h1 class="text-xl font-bold text-darkBrown tracking-tight">philo. <span class="text-xs uppercase tracking-widest font-normal text-mutedBrown">STUDIO</span></h1>
+        <div v-if="activeSession" class="flex items-center gap-2">
+          <span class="px-3 py-1 bg-warmWhite border border-stone-300 text-xs rounded-full font-semibold text-mutedBrown">
+            📂 {{ activeSession.date_folder }} / {{ activeSession.client_name }}
+          </span>
+          <span class="px-3 py-1 bg-blushPink/60 text-xs font-bold rounded-full text-darkBrown">
+            Package: {{ activeSession.package_name }}
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- UNDO & REDO CONTROLS -->
+        <div v-if="hasActiveSession" class="flex items-center gap-1 bg-warmWhite border border-stone-300 rounded-lg p-1">
+          <button 
+            @click="undo" 
+            :disabled="!canUndo"
+            :class="['px-2.5 py-1 text-xs font-bold rounded flex items-center gap-1 transition', canUndo ? 'text-darkBrown hover:bg-softCream' : 'text-stone-300 cursor-not-allowed']"
+            title="Undo last change"
+          >
+            ↩ Undo
+          </button>
+          <div class="h-4 w-[1px] bg-stone-200"></div>
+          <button 
+            @click="redo" 
+            :disabled="!canRedo"
+            :class="['px-2.5 py-1 text-xs font-bold rounded flex items-center gap-1 transition', canRedo ? 'text-darkBrown hover:bg-softCream' : 'text-stone-300 cursor-not-allowed']"
+            title="Redo action"
+          >
+            Redo ↪
+          </button>
+        </div>
+
+        <button @click="showStaffModal = true" class="px-4 py-2 bg-warmWhite hover:bg-stone-100 border border-stone-300 text-xs font-semibold rounded-lg transition">
+          ⚙️ Staff Setup
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex overflow-hidden">
+
+      <!-- LEFT GALLERY: 3-COLUMN SIDE-BY-SIDE -->
+      <section class="w-5/12 border-r border-stone-300 flex flex-col bg-warmWhite h-full">
+        <div class="p-3 bg-softCream/60 border-b border-stone-200 flex items-center justify-between">
+          <span class="text-xs font-bold text-mutedBrown">Client Photos (Tap to assign to active slot)</span>
+          <span class="text-xs font-mono font-semibold bg-warmWhite px-2 py-0.5 border rounded-md text-darkBrown">{{ photos.length }} Total</span>
+        </div>
+
+        <div class="flex-1 touch-scroll photo-grid-wrapper p-3">
+          <div 
+            v-for="photo in photos" 
+            :key="photo"
+            @click="assignPhotoToActiveSlot(photo)"
+            :class="['photo-card cursor-pointer relative', activePhoto === photo ? 'ring-4 ring-mutedBrown shadow-lg' : '']"
+          >
+            <img :src="'/api/media/thumbnail/' + activeSession.id + '/' + photo" loading="lazy" class="w-full h-full object-cover">
+            <div class="bottom-filename">
+              {{ photo }}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT AREA: ALL PACKAGE LAYOUTS -->
+      <section class="w-7/12 flex-1 bg-softCream/40 touch-scroll p-6">
+        <div v-if="!hasActiveSession" class="flex flex-col items-center justify-center h-full text-center">
+          <div class="text-4xl mb-3">📸</div>
+          <h3 class="text-base font-bold text-darkBrown mb-1">No Client Session Loaded</h3>
+          <p class="text-xs text-mutedBrown max-w-sm mb-4">Click "Staff Setup" to load folder from Mac Desktop.</p>
+          <button @click="showStaffModal = true" class="px-5 py-2.5 bg-mutedBrown text-warmWhite text-xs font-bold rounded-xl shadow">
+            Open Staff Setup
+          </button>
+        </div>
+
+        <div v-else class="space-y-8 max-w-2xl mx-auto pb-12">
+          <div class="text-center pb-2 border-b border-stone-300">
+            <h2 class="text-lg font-bold text-darkBrown">{{ activeSession.package_name }} PACKAGE</h2>
+            <p class="text-xs text-mutedBrown">Tap any slot below, then tap a photo on the left gallery to place it.</p>
+          </div>
+
+          <div 
+            v-for="tpl in templates" 
+            :key="tpl.id"
+            class="bg-warmWhite border border-stone-300 rounded-2xl p-6 shadow-sm flex flex-col items-center"
+          >
+            <div class="w-full flex justify-between items-center mb-4">
+              <span class="text-xs font-bold text-darkBrown uppercase tracking-wider">{{ tpl.title }}</span>
+
+              <!-- GRID ORIENTATION SWITCH -->
+              <div v-if="tpl.template_key.includes('grid')" class="flex items-center gap-1 bg-softCream border border-stone-300 p-1 rounded-lg">
+                <button 
+                  @click="setGridOrientation(tpl.id, 'vertical')" 
+                  :class="['px-2.5 py-1 text-[11px] font-bold rounded transition', getGridOrientation(tpl.id) === 'vertical' ? 'bg-mutedBrown text-white shadow-xs' : 'text-mutedBrown hover:bg-stone-200']"
+                >
+                  📱 Vertical Grid (2x4)
+                </button>
+                <button 
+                  @click="setGridOrientation(tpl.id, 'horizontal')" 
+                  :class="['px-2.5 py-1 text-[11px] font-bold rounded transition', getGridOrientation(tpl.id) === 'horizontal' ? 'bg-mutedBrown text-white shadow-xs' : 'text-mutedBrown hover:bg-stone-200']"
+                >
+                  🖼️ Horizontal Grid (4x2)
+                </button>
+              </div>
+            </div>
+
+            <!-- Print Canvas Display Frame -->
+            <div 
+              :class="['print-frame relative border shadow-md transition-all', tpl.bg_theme === 'dark' ? 'bg-black border-stone-800' : 'bg-white border-stone-300']"
+              :style="getCanvasStyle(tpl)"
+            >
+              <!-- Photo Slots -->
+              <div 
+                v-for="(slot, sIdx) in getActiveSlots(tpl)"
+                :key="slot.id"
+                @click="setActiveSlot(tpl.id, sIdx)"
+                :class="['absolute border transition-all cursor-pointer flex items-center justify-center overflow-hidden', getSlotIndexKey(tpl.id, sIdx) === currentActiveKey ? 'border-2 border-mutedBrown ring-2 ring-mutedBrown/40' : 'border-stone-400 hover:border-stone-600', tpl.bg_theme === 'dark' ? 'bg-stone-900' : 'bg-stone-50']"
+                :style="getSlotStyle(tpl, slot)"
+              >
+                <template v-if="assignments[getSlotIndexKey(tpl.id, sIdx)]">
+                  <div class="relative w-full h-full overflow-hidden flex items-center justify-center">
+                    <img 
+                      :src="'/api/media/full/' + activeSession.id + '/' + assignments[getSlotIndexKey(tpl.id, sIdx)]"
+                      class="w-full h-full object-cover transition-transform duration-150 transform-gpu"
+                      :style="getImageTransform(tpl.id, sIdx)"
+                    >
+                  </div>
+
+                  <!-- Micro Arrow Controllers -->
+                  <div 
+                    v-if="getSlotIndexKey(tpl.id, sIdx) === currentActiveKey"
+                    class="absolute top-1 right-1 flex flex-col gap-0.5 z-20 bg-darkBrown/70 backdrop-blur-xs rounded p-0.5 border border-white/20 shadow-sm"
+                    @click.stop
+                  >
+                    <button 
+                      @click="adjustPhotoOffset(tpl.id, sIdx, -2)" 
+                      class="w-4 h-4 flex items-center justify-center text-warmWhite text-[8px] font-bold hover:bg-white/30 rounded active:scale-90"
+                      title="Move Up"
+                    >
+                      ▲
+                    </button>
+                    <button 
+                      @click="adjustPhotoOffset(tpl.id, sIdx, 2)" 
+                      class="w-4 h-4 flex items-center justify-center text-warmWhite text-[8px] font-bold hover:bg-white/30 rounded active:scale-90"
+                      title="Move Down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+
+                  <!-- Filename Overlay -->
+                  <div class="absolute bottom-1 inset-x-0 mx-auto text-center w-max z-10 pointer-events-none opacity-60 bg-black/60 text-white font-mono text-[8px] px-1.5 py-0.5 rounded shadow-sm truncate max-w-[85%]">
+                    {{ assignments[getSlotIndexKey(tpl.id, sIdx)] }}
+                  </div>
+                </template>
+
+                <div v-else class="text-[10px] font-semibold text-center p-1 text-stone-400">
+                  + Slot
+                </div>
+              </div>
+
+              <!-- DUAL BRANDING LOGOS FOR 8-PHOTO GRID (ONLY SHOWN IN VERTICAL ORIENTATION) -->
+              <template v-if="tpl.template_key.includes('grid') && getGridOrientation(tpl.id) === 'vertical'">
+                <div :class="['absolute bottom-1.5 left-0 w-1/2 text-center font-bold tracking-tight text-[10px]', tpl.bg_theme === 'dark' ? 'text-white' : 'text-darkBrown']">
+                  philo. <span class="text-[7px] font-normal uppercase">STUDIO</span>
+                </div>
+                <div :class="['absolute bottom-1.5 right-0 w-1/2 text-center font-bold tracking-tight text-[10px]', tpl.bg_theme === 'dark' ? 'text-white' : 'text-darkBrown']">
+                  philo. <span class="text-[7px] font-normal uppercase">STUDIO</span>
+                </div>
+              </template>
+
+              <!-- SINGLE CENTER LOGO FOR NON-GRID LAYOUTS -->
+              <template v-else-if="!tpl.template_key.includes('grid')">
+                <div :class="['absolute bottom-2 inset-x-0 text-center font-bold tracking-tight text-[11px]', tpl.bg_theme === 'dark' ? 'text-white' : 'text-darkBrown']">
+                  philo. <span class="text-[8px] font-normal tracking-widest uppercase">STUDIO</span>
+                </div>
+              </template>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- STAFF SETUP MODAL -->
+    <div v-if="showStaffModal" class="fixed inset-0 bg-darkBrown/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+      <div class="bg-warmWhite border border-stone-300 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+        <h3 class="text-base font-bold text-darkBrown">Staff Desktop Setup</h3>
+        <p class="text-xs text-mutedBrown">Enter your Mac Desktop folder names and select client's package:</p>
+
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-mutedBrown block mb-1">Date Folder Name (on Desktop)</label>
+            <input v-model="staffForm.date_folder" placeholder="e.g. OCT 28" class="w-full px-3 py-2 text-xs bg-softCream border border-stone-300 rounded-lg focus:outline-none font-medium">
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-mutedBrown block mb-1">Client Folder Name</label>
+            <input v-model="staffForm.client_name" placeholder="e.g. BIANCA" class="w-full px-3 py-2 text-xs bg-softCream border border-stone-300 rounded-lg focus:outline-none font-medium">
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-mutedBrown block mb-1">Choose Package</label>
+            <select v-model="staffForm.selected_package" class="w-full px-3 py-2 text-xs bg-softCream border border-stone-300 rounded-lg font-semibold text-darkBrown">
+              <option value="SOLO">SOLO Package</option>
+              <option value="DUO">DUO Package</option>
+              <option value="GROUP">GROUP Package</option>
+              <option value="FULL GRID LITE">FULL GRID LITE Package</option>
+              <option value="FULL GRID">FULL GRID Package</option>
+              <option value="DARK ROOM">DARK ROOM Package</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2">
+          <button @click="showStaffModal = false" class="px-4 py-2 text-xs font-semibold text-mutedBrown hover:bg-stone-200 rounded-lg">Cancel</button>
+          <button @click="loadStaffSession" class="px-5 py-2 bg-mutedBrown hover:bg-darkBrown text-warmWhite text-xs font-bold rounded-lg shadow">
+            🔍 Load Photos from Mac Desktop
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
